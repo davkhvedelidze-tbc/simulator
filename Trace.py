@@ -120,7 +120,7 @@ class Trace:
         showing time in seconds (with decimals).
         """
         headers = ["Time (s)", "Type", "Source", "Destination"]
-        time_str = f"{self.event_time:.6f}"
+        time_str = f"{self.event_time:.2f}"
         type_str = self.event_type or ""
         src = self.message.get_source()
         dst = self.message.get_destination()
