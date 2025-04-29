@@ -1,89 +1,150 @@
-# from Message import Message
+# Engine.py
 
-# class Engine:
-#     def testMsg(self):
-#         for i in range(1, 6):
-#             msg = Message("1", "0", f"Hello World, iteration {i}")
-#             msg.print_message()
-
-#     def main(self):
-#         self.testMsg()
-
-# if __name__ == "__main__":
-#     engine = Engine()
-#     engine.main()
-
-
-
-
+import random
 from Message import Message
-from trace import Trace
-from Message import EventType
-
-# from Event import Event  # Event class to be implemented per slide 13
+from Trace import Trace
+from Event import Event, EventType
+from Scheduler import Scheduler
+from Client import Client
 
 class Engine:
-    def __init__(self, n_clients: int = 1, simulation_time: float = 10.0):
+    def __init__(self,
+                 n_clients: int = 3,
+                 num_sources: int = 2,
+                 simulation_time: float = 10.0,
+                 lam: float = 4.0,
+                 mu: float = 8.0):
         # Main parameters
-        self.n_clients = n_clients
+        self.n_clients       = n_clients
         self.simulation_time = simulation_time
-        self.gateway = None  # single gateway placeholder
+        self.lam             = lam   # client arrival rate
+        self.mu              = mu    # gateway service rate
 
-        # Internal state
-        self.traces = []
-        self.event_counter = 0
+        # Two “destination” gateways (sources for the server)
+        self.sources = [str(i) for i in range(num_sources)]
 
-    def GenerateTrace(self, event) -> None:
-        """
-        Create a Trace from an Event and store/print it.
+        # Components
+        self.scheduler = Scheduler()
+        self.clients   = []
+        self.traces    = []
 
-        :param event: An object with get_event_id(), get_message(),
-                      get_event_time(), get_event_type().
-        """
+    def Test_msg(self) -> None:
+        """Demonstrate basic Message usage."""
+        print("\n--- Test_msg ---")
+        msg = Message(source="0", destination="1", payload="Example")
+        print(f"Message ID:  {msg.get_message_id()}")
+        print(f"Source:      {msg.get_source()}")
+        print(f"Destination: {msg.get_destination()}")
+        print(f"Payload:     {msg.get_payload()}")
+        print(f"Timestamp:   {msg.get_timestamp():.6f}")
+        msg.print_message()
+
+    def Test_event(self) -> None:
+        """Demonstrate basic Event usage."""
+        print("\n--- Test_event ---")
+        msg   = Message(source="0", destination="1", payload="EvtPayload")
+        event = Event(message=msg, event_type=EventType.SEND_MSG.value)
+        event.set_event_time(msg.get_timestamp())
+        print(f"Event ID:    {event.get_event_id()}")
+        print(f"Event Type:  {event.get_event_type()}")
+        print(f"Event Time:  {event.get_event_time():.6f}")
+        event.print_event()
+
+    def CreateClients(self) -> None:
+        """Instantiate n_clients Client objects."""
+        for _ in range(self.n_clients):
+            c = Client(self.lam)
+            self.clients.append(c)
+        print(f"\nCreated {len(self.clients)} clients.")
+
+    def InitEvents(self) -> None:
+        """Schedule each client's first SEND_MSG to one of the gateways."""
+        for client in self.clients:
+            ia = random.expovariate(self.lam)
+            send_time = ia
+            src = str(client.get_client_id())     # now just "0", "1", "2"
+            dest = random.choice(self.sources)
+            msg = Message(source=src, destination=dest)
+            msg.timestamp = send_time
+            evt = Event(message=msg,
+                        event_time=send_time,
+                        event_type=EventType.SEND_MSG.value)
+            self.scheduler.add_event(evt)
+
+    def GenerateTrace(self, event: Event) -> None:
+        """Record and print a Trace for the given Event."""
         trace = Trace(
-            event_id=event.get_event_id(),
-            message=event.get_message(),
-            event_time=event.get_event_time(),
-            event_type=event.get_event_type()
+            event.get_event_id(),
+            event.get_message(),
+            event.get_event_time(),
+            event.get_event_type()
         )
         self.traces.append(trace)
         trace.print_trace()
 
-    def CreateClients(self, n_clients: int):
-        """
-        Stub for creating client instances.
-        """
-        self.clients = [f"Client{i}" for i in range(n_clients)]
-        print(f"Created {n_clients} clients: {self.clients}")
+    def Run(self) -> None:
+        """Drive the simulation until simulation_time is reached."""
+        self.CreateClients()
+        self.InitEvents()
 
-    def Run(self):
-        """
-        Stub run loop to generate test messages and traces.
-        """
-        for i in range(1, 6):
-            msg = Message(source="Client1", destination="Server1", payload=f"Iteration {i}")
-            msg.print_message()
+        while True:
+            next_time = self.scheduler.get_current_time()
+            if next_time is None or next_time > self.simulation_time:
+                break
 
-            # Dummy Event object to illustrate trace generation
-            class DummyEvent:
-                def __init__(self, eid, message):
-                    self._eid = eid
-                    self._msg = message
-                    self._time = message.get_timestamp()
-                    self._type = EventType.SEND_MSG.name
-                def get_event_id(self): return self._eid
-                def get_message(self): return self._msg
-                def get_event_time(self): return self._time
-                def get_event_type(self): return self._type
+            evt = self.scheduler.get_event()
+            self.GenerateTrace(evt)
 
-            event = DummyEvent(self.event_counter, msg)
-            self.GenerateTrace(event)
-            self.event_counter += 1
+            etype = evt.get_event_type()
+            msg   = evt.get_message()
 
-    def main(self):
-        # slide 11: main() should invoke Run()
+            if etype == EventType.SEND_MSG.value:
+                # Arrival at gateway
+                recv_evt = Event(
+                    message=msg,
+                    event_time=evt.get_event_time(),
+                    event_type=EventType.RECV_MSG.value
+                )
+                self.scheduler.add_event(recv_evt)
+
+                # Schedule next client send
+                ia = random.expovariate(self.lam)
+                t_next = evt.get_event_time() + ia
+                src = msg.get_source()               # remains numeric string
+                dest = random.choice(self.sources)
+                new_msg = Message(source=src, destination=dest)
+                new_msg.timestamp = t_next
+                next_evt = Event(
+                    message=new_msg,
+                    event_time=t_next,
+                    event_type=EventType.SEND_MSG.value
+                )
+                self.scheduler.add_event(next_evt)
+
+            elif etype == EventType.RECV_MSG.value:
+                # Schedule departure after service time
+                st = random.expovariate(self.mu)
+                dept_time = evt.get_event_time() + st
+                dept_evt = Event(
+                    message=msg,
+                    event_time=dept_time,
+                    event_type=EventType.MSG_DEPT.value
+                )
+                self.scheduler.add_event(dept_evt)
+
+    def main(self) -> None:
+        # Run demos/tests first
+        self.Test_msg()
+        self.Test_event()
+        # Run the simulation with numeric sources only
         self.Run()
 
 if __name__ == "__main__":
-    engine = Engine(n_clients=1, simulation_time=10.0)
+    engine = Engine(
+        n_clients=3,
+        num_sources=2,
+        simulation_time=10.0,
+        lam=4.0,
+        mu=8.0
+    )
     engine.main()
