@@ -20,8 +20,8 @@ class Engine:
         self.lam             = lam   # client arrival rate
         self.mu              = mu    # gateway service rate
 
-        # Two “destination” gateways (sources for the server)
-        self.sources = [str(i) for i in range(num_sources)]
+        # Gateways numbered from 1..num_sources
+        self.sources = [str(i+1) for i in range(num_sources)]
 
         # Components
         self.scheduler = Scheduler()
@@ -31,23 +31,18 @@ class Engine:
     def Test_msg(self) -> None:
         """Demonstrate basic Message usage."""
         print("\n--- Test_msg ---")
-        msg = Message(source="0", destination="1", payload="Example")
+        msg = Message(source="1", destination="2", payload="Example")
         print(f"Message ID:  {msg.get_message_id()}")
-        print(f"Source:      {msg.get_source()}")
-        print(f"Destination: {msg.get_destination()}")
-        print(f"Payload:     {msg.get_payload()}")
-        print(f"Timestamp:   {msg.get_timestamp():.6f}")
+        print(f"Source:      {msg.get_source()}")       # prints "1"
+        print(f"Destination: {msg.get_destination()}")  # prints "2"
         msg.print_message()
 
     def Test_event(self) -> None:
         """Demonstrate basic Event usage."""
         print("\n--- Test_event ---")
-        msg   = Message(source="0", destination="1", payload="EvtPayload")
+        msg   = Message(source="1", destination="2", payload="EvtPayload")
         event = Event(message=msg, event_type=EventType.SEND_MSG.value)
         event.set_event_time(msg.get_timestamp())
-        print(f"Event ID:    {event.get_event_id()}")
-        print(f"Event Type:  {event.get_event_type()}")
-        print(f"Event Time:  {event.get_event_time():.6f}")
         event.print_event()
 
     def CreateClients(self) -> None:
@@ -62,13 +57,16 @@ class Engine:
         for client in self.clients:
             ia = random.expovariate(self.lam)
             send_time = ia
-            src = str(client.get_client_id())     # now just "0", "1", "2"
+            # client IDs: offset by +1 so they start at "1"
+            src = str(client.get_client_id() + 1)
             dest = random.choice(self.sources)
             msg = Message(source=src, destination=dest)
             msg.timestamp = send_time
-            evt = Event(message=msg,
-                        event_time=send_time,
-                        event_type=EventType.SEND_MSG.value)
+            evt = Event(
+                message=msg,
+                event_time=send_time,
+                event_type=EventType.SEND_MSG.value
+            )
             self.scheduler.add_event(evt)
 
     def GenerateTrace(self, event: Event) -> None:
@@ -99,7 +97,7 @@ class Engine:
             msg   = evt.get_message()
 
             if etype == EventType.SEND_MSG.value:
-                # Arrival at gateway
+                # 1) arrival at gateway
                 recv_evt = Event(
                     message=msg,
                     event_time=evt.get_event_time(),
@@ -107,10 +105,11 @@ class Engine:
                 )
                 self.scheduler.add_event(recv_evt)
 
-                # Schedule next client send
+                # 2) schedule client's next send
                 ia = random.expovariate(self.lam)
                 t_next = evt.get_event_time() + ia
-                src = msg.get_source()               # remains numeric string
+                # propagate same client ID (already offset in InitEvents)
+                src = msg.get_source()
                 dest = random.choice(self.sources)
                 new_msg = Message(source=src, destination=dest)
                 new_msg.timestamp = t_next
@@ -122,7 +121,7 @@ class Engine:
                 self.scheduler.add_event(next_evt)
 
             elif etype == EventType.RECV_MSG.value:
-                # Schedule departure after service time
+                # schedule departure after service time
                 st = random.expovariate(self.mu)
                 dept_time = evt.get_event_time() + st
                 dept_evt = Event(
@@ -133,10 +132,10 @@ class Engine:
                 self.scheduler.add_event(dept_evt)
 
     def main(self) -> None:
-        # Run demos/tests first
+        # Optionally run demos/tests
         self.Test_msg()
         self.Test_event()
-        # Run the simulation with numeric sources only
+        # Run the actual simulation
         self.Run()
 
 if __name__ == "__main__":
