@@ -20,6 +20,7 @@ class Engine:
                  transmission_delay=1.0
                  ):
         # Main parameters
+        self.start_time = time.time()
         self.n_clients = n_clients
         self.simulation_time = simulation_time
         self.lam = lam  # client arrival rate
@@ -49,6 +50,7 @@ class Engine:
         event = Event(message=msg, event_type=EventType.SEND_MSG.value)
         event.set_event_time(msg.get_timestamp())
         event.print_event()
+
     def Test_Queue(self) -> None:
         """Test the Queue class functionality."""
         print("\n--- Test_Queue ---")
@@ -272,7 +274,7 @@ class Engine:
 
             if evt.get_event_type() == EventType.SEND_MSG.value:
                 # schedule this client’s next send
-                ia   = random.expovariate(self.lam)
+                ia = random.expovariate(self.lam)
                 t_nx = evt.get_event_time() + ia
 
                 src = evt.get_message().get_source()
