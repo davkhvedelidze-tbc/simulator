@@ -1,5 +1,4 @@
-# Engine.py
-
+import time
 import random
 from Message import Message
 from Queue import Queue
@@ -50,7 +49,6 @@ class Engine:
         event = Event(message=msg, event_type=EventType.SEND_MSG.value)
         event.set_event_time(msg.get_timestamp())
         event.print_event()
-
     def Test_Queue(self) -> None:
         """Test the Queue class functionality."""
         print("\n--- Test_Queue ---")
@@ -226,52 +224,64 @@ class Engine:
         print(f"Number of dropped messages: {gateway.getDroppedMsg()}")
 
     def CreateClients(self) -> None:
-        """Instantiate n_clients Client objects."""
+        """Instantiate n_clients and store in self.clients."""
         for _ in range(self.n_clients):
             c = Client(self.lam)
             self.clients.append(c)
-        print(f"\nCreated {len(self.clients)} clients.")
+        print(f"Created {len(self.clients)} clients.")
 
     def InitEvents(self) -> None:
-        """Schedule each client's first SEND_MSG to one of the gateways."""
+        """Schedule each client's first SEND_MSG Event."""
         for client in self.clients:
-            ia = random.expovariate(self.lam)
-            send_time = ia
-            # client IDs: offset by +1 so they start at "1"
-            src = str(client.get_client_id() + 1)
-            dest = random.choice(self.sources)
-            msg = Message(source=src, destination=dest)
-            msg.timestamp = send_time
-            evt = Event(
-                message=msg,
-                event_time=send_time,
-                event_type=EventType.SEND_MSG.value
-            )
-            self.scheduler.add_event(evt)
+            # destination should be "0" (your single gateway)
+            ev = client.start(destination="0")
+            self.scheduler.add_event(ev)
 
     def GenerateTrace(self, event: Event) -> None:
-        """Record and print a Trace for the given Event."""
-        trace = Trace(
+        """Log only SEND_MSG events as traces."""
+        if event.get_event_type() != EventType.SEND_MSG.value:
+            return
+
+        rel_time = event.get_event_time() - self.start_time
+        tr = Trace(
             event.get_event_id(),
             event.get_message(),
-            event.get_event_time(),
+            rel_time,
             event.get_event_type()
         )
-        self.traces.append(trace)
-        trace.print_trace()
+        self.traces.append(tr)
+        tr.print_trace()
 
     def Run(self) -> None:
-        """Drive the simulation until simulation_time is reached."""
+        """
+        Drive the simulation: process SEND_MSG events only,
+        scheduling each client's next send until time expires.
+        """
         self.CreateClients()
         self.InitEvents()
 
+        end_time = self.start_time + self.simulation_time
         while True:
             next_time = self.scheduler.get_current_time()
-            if next_time is None or next_time > self.simulation_time:
+            if next_time is None or next_time > end_time:
                 break
 
             evt = self.scheduler.get_event()
+            # only SEND_MSG are in the queue, but we still check type
             self.GenerateTrace(evt)
+
+            if evt.get_event_type() == EventType.SEND_MSG.value:
+                # schedule this client’s next send
+                ia   = random.expovariate(self.lam)
+                t_nx = evt.get_event_time() + ia
+
+                src = evt.get_message().get_source()
+                # destination should be "0"
+                new_msg = Message(
+                    source=src,
+                    destination="0"
+                )
+                new_msg.timestamp = t_nx
 
             etype = evt.get_event_type()
             msg = evt.get_message()
@@ -295,23 +305,14 @@ class Engine:
                 new_msg.timestamp = t_next
                 next_evt = Event(
                     message=new_msg,
-                    event_time=t_next,
+                    event_time=t_nx,
                     event_type=EventType.SEND_MSG.value
                 )
                 self.scheduler.add_event(next_evt)
 
-            elif etype == EventType.RECV_MSG.value:
-                # schedule departure after service time
-                st = random.expovariate(self.mu)
-                dept_time = evt.get_event_time() + st
-                dept_evt = Event(
-                    message=msg,
-                    event_time=dept_time,
-                    event_type=EventType.MSG_DEPT.value
-                )
-                self.scheduler.add_event(dept_evt)
-
     def main(self) -> None:
+        elapsed = time.time() - self.start_time
+        print(f"Simulation start @ {elapsed:.2f}s")
         # Optionally run demos/tests
         # self.Test_msg()
         # self.Test_event()
@@ -320,14 +321,13 @@ class Engine:
         self.Test_GateWay()
         # Run the actual simulation
         self.Run()
+        print("Simulation complete.")
 
 
 if __name__ == "__main__":
     engine = Engine(
         n_clients=3,
-        num_sources=2,
         simulation_time=10.0,
-        lam=4.0,
-        mu=8.0
+        lam=1.0
     )
     engine.main()
